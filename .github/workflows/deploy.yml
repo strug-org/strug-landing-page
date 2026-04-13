@@ -1,12 +1,9 @@
 # ============================================================================
-# CI/CD Template: Next.js App → Azure App Service (Standalone Mode)
+# CI/CD: Next.js App → Azure App Service (Standalone Mode)
 # ============================================================================
-# Copy & customize for each Next.js repo:
-#   - strug-web-app/.github/workflows/deploy.yml
-#   - strug_frontend-main/.github/workflows/deploy.yml
-#   - strug-landing-page/.github/workflows/deploy.yml
+# Repo: strug-landing-page
 #
-# IMPORTANT: Each repo's next.config.mjs must have: output: 'standalone'
+# IMPORTANT: next.config.mjs must have: output: 'standalone'
 #
 # Required GitHub Secrets:
 #   AZURE_CLIENT_ID       — App Registration client ID (OIDC)
@@ -27,30 +24,17 @@ permissions:
 
 env:
   NODE_VERSION: '20'
-
-  # ┌──────────────────────────────────────────────────────────────────────┐
-  # │ CUSTOMIZE THESE PER REPO                                           │
-  # │                                                                      │
-  # │ strug-web-app:                                                       │
-  # │   STAGING_APP_NAME:    'app-strug-staging-webapp'                    │
-  # │   PRODUCTION_APP_NAME: 'app-strug-prod-landing'                      │
-  # │                                                                      │
-  # │ strug_frontend-main:                                                 │
-  # │   STAGING_APP_NAME:    'app-strug-staging-frontend-main'             │
-  # │   PRODUCTION_APP_NAME: 'app-strug-prod-frontend-main'               │
-  # │                                                                      │
-  # │ strug-landing-page:                                                  │
-  # │   STAGING_APP_NAME:    'app-strug-staging-landing'                   │
-  # │   PRODUCTION_APP_NAME: 'app-strug-prod-landing'                     │
-  # └──────────────────────────────────────────────────────────────────────┘
   STAGING_APP_NAME: 'app-strug-staging-landing'
+  STAGING_RG: 'rg-strug-staging'
   PRODUCTION_APP_NAME: 'app-strug-prod-landing'
+  PRODUCTION_RG: 'rg-strug-prod'
 
 jobs:
   # ─── Build ─────────────────────────────────────────────────────────────────
   build:
     name: Build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -91,6 +75,7 @@ jobs:
     if: github.ref == 'refs/heads/staging'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Download artifact
@@ -106,10 +91,34 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy to App Service
-        uses: azure/webapps-deploy@v3
+        uses: azure/cli@v2
+        timeout-minutes: 10
         with:
-          app-name: ${{ env.STAGING_APP_NAME }}
-          package: deploy.zip
+          inlineScript: |
+            az webapp deploy \
+              --resource-group ${{ env.STAGING_RG }} \
+              --name ${{ env.STAGING_APP_NAME }} \
+              --src-path deploy.zip \
+              --type zip \
+              --async true
+
+      - name: Health check
+        run: |
+          echo "⏳ Waiting 60s for app startup..."
+          sleep 60
+          echo "🔍 Running health check..."
+          for i in 1 2 3 4 5; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 15 \
+              "https://${{ env.STAGING_APP_NAME }}.azurewebsites.net") || true
+            echo "  Attempt $i: HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "404" ]; then
+              echo "✅ App is responding!"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "⚠️ Health check did not get a response — check Azure logs"
 
   # ─── Deploy to Production ──────────────────────────────────────────────────
   deploy-production:
@@ -117,6 +126,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Download artifact
@@ -132,7 +142,13 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Deploy to App Service
-        uses: azure/webapps-deploy@v3
+        uses: azure/cli@v2
+        timeout-minutes: 10
         with:
-          app-name: ${{ env.PRODUCTION_APP_NAME }}
-          package: deploy.zip
+          inlineScript: |
+            az webapp deploy \
+              --resource-group ${{ env.PRODUCTION_RG }} \
+              --name ${{ env.PRODUCTION_APP_NAME }} \
+              --src-path deploy.zip \
+              --type zip \
+              --async true
