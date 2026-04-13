@@ -8,7 +8,10 @@
 #
 # IMPORTANT: Each repo's next.config.mjs must have: output: 'standalone'
 #
-# Customize the env vars below for each repo.
+# Required GitHub Secrets:
+#   AZURE_CLIENT_ID       — App Registration client ID (OIDC)
+#   AZURE_TENANT_ID       — Azure AD tenant ID
+#   AZURE_SUBSCRIPTION_ID — Azure subscription ID
 # ============================================================================
 
 name: Deploy Next.js
@@ -88,9 +91,6 @@ jobs:
     if: github.ref == 'refs/heads/staging'
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: staging
-      url: https://${{ env.STAGING_APP_NAME }}.azurewebsites.net
 
     steps:
       - name: Download artifact
@@ -117,9 +117,6 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://${{ env.PRODUCTION_APP_NAME }}.azurewebsites.net
 
     steps:
       - name: Download artifact
