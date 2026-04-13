@@ -1,0 +1,141 @@
+# ============================================================================
+# CI/CD Template: Next.js App → Azure App Service (Standalone Mode)
+# ============================================================================
+# Copy & customize for each Next.js repo:
+#   - strug-web-app/.github/workflows/deploy.yml
+#   - strug_frontend-main/.github/workflows/deploy.yml
+#   - strug-landing-page/.github/workflows/deploy.yml
+#
+# IMPORTANT: Each repo's next.config.mjs must have: output: 'standalone'
+#
+# Customize the env vars below for each repo.
+# ============================================================================
+
+name: Deploy Next.js
+
+on:
+  push:
+    branches: [staging, main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+
+  # ┌──────────────────────────────────────────────────────────────────────┐
+  # │ CUSTOMIZE THESE PER REPO                                           │
+  # │                                                                      │
+  # │ strug-web-app:                                                       │
+  # │   STAGING_APP_NAME:    'app-strug-staging-webapp'                    │
+  # │   PRODUCTION_APP_NAME: 'app-strug-prod-landing'                      │
+  # │                                                                      │
+  # │ strug_frontend-main:                                                 │
+  # │   STAGING_APP_NAME:    'app-strug-staging-frontend-main'             │
+  # │   PRODUCTION_APP_NAME: 'app-strug-prod-frontend-main'               │
+  # │                                                                      │
+  # │ strug-landing-page:                                                  │
+  # │   STAGING_APP_NAME:    'app-strug-staging-landing'                   │
+  # │   PRODUCTION_APP_NAME: 'app-strug-prod-landing'                     │
+  # └──────────────────────────────────────────────────────────────────────┘
+  STAGING_APP_NAME: 'app-strug-staging-landing'
+  PRODUCTION_APP_NAME: 'app-strug-prod-landing'
+
+jobs:
+  # ─── Build ─────────────────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (standalone)
+        run: npm run build
+
+      - name: Prepare deployment package
+        run: |
+          mkdir -p deploy/.next/static
+          # Copy standalone server
+          cp -r .next/standalone/* deploy/
+          # Copy static assets (not included in standalone)
+          cp -r .next/static deploy/.next/
+          # Copy public folder if it exists
+          if [ -d "public" ]; then cp -r public deploy/; fi
+          # Create ZIP
+          cd deploy && zip -r ../deploy.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextjs-${{ github.sha }}
+          path: deploy.zip
+          retention-days: 3
+
+  # ─── Deploy to Staging ─────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy → Staging
+    if: github.ref == 'refs/heads/staging'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://${{ env.STAGING_APP_NAME }}.azurewebsites.net
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nextjs-${{ github.sha }}
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.STAGING_APP_NAME }}
+          package: deploy.zip
+
+  # ─── Deploy to Production ──────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy → Production
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://${{ env.PRODUCTION_APP_NAME }}.azurewebsites.net
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: nextjs-${{ github.sha }}
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ env.PRODUCTION_APP_NAME }}
+          package: deploy.zip
