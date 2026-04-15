@@ -164,6 +164,9 @@ jobs:
               --docker-container-logging filesystem \
               --level information
 
+      - name: Wait for app settings to propagate
+        run: sleep 20
+
       - name: Deploy to App Service
         uses: azure/cli@v2
         timeout-minutes: 20
@@ -171,14 +174,16 @@ jobs:
           inlineScript: |
             # --clean true wipes /home/site/wwwroot before extraction, removing any
             # stale oryx-manifest.toml or node_modules state from previous deploys.
+            # --async false (default) lets the CLI poll until done so we get a real
+            # success/failure exit code; combined with the appsettings already set to
+            # SCM_DO_BUILD_DURING_DEPLOYMENT=false this should skip the Oryx build.
             az webapp deploy \
               --resource-group ${{ env.STAGING_RG }} \
               --name ${{ env.STAGING_APP_NAME }} \
               --src-path deploy.zip \
               --type zip \
               --clean true \
-              --restart true \
-              --async true
+              --restart true
 
       - name: Inspect wwwroot on failure
         if: failure()
@@ -298,6 +303,9 @@ jobs:
               --docker-container-logging filesystem \
               --level information
 
+      - name: Wait for app settings to propagate
+        run: sleep 20
+
       - name: Deploy to App Service
         uses: azure/cli@v2
         timeout-minutes: 20
@@ -311,8 +319,7 @@ jobs:
               --src-path deploy.zip \
               --type zip \
               --clean true \
-              --restart true \
-              --async true
+              --restart true
 
       - name: Inspect wwwroot on failure
         if: failure()
